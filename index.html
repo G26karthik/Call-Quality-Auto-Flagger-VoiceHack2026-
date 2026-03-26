@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Call Quality Auto-Flagger — VoiceHack2026</title>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <style>
   :root { --blue: #1A73E8; --green: #34A853; --red: #D93025; --bg: #f8f9fa; --card: #fff; --text: #333; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -35,12 +36,24 @@
   .rule.fab { border-color: #9334E6; background: #f3e8fd; }
   .rule.nlp { border-color: #34A853; background: #e6f4ea; }
   .rule strong { display: block; margin-bottom: .2rem; }
-  .btn { display: inline-block; background: var(--blue); color: #fff; padding: .7rem 1.6rem; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: .95rem; transition: background .2s; }
+  .btn { display: inline-block; background: var(--blue); color: #fff; padding: .7rem 1.6rem; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: .95rem; transition: background .2s; cursor: pointer; border: none; }
   .btn:hover { background: #1557b0; }
   .btn-row { text-align: center; margin: 2rem 0; display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
   .btn.secondary { background: #555; }
   .btn.secondary:hover { background: #333; }
+  .btn.run { background: #E37400; font-size: 1.05rem; padding: .8rem 2rem; }
+  .btn.run:hover { background: #c46200; }
+  .btn:disabled { opacity: .6; cursor: not-allowed; }
   .footer { text-align: center; padding: 2rem 1rem; color: #999; font-size: .8rem; }
+  .live-section { border: 2px solid var(--blue); }
+  .live-label { display: inline-block; background: var(--blue); color: #fff; padding: .2rem .6rem; border-radius: 4px; font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; margin-left: .5rem; vertical-align: middle; }
+  .log { background: #1a1a2e; color: #a0e8af; padding: 1rem; border-radius: 8px; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: .82rem; max-height: 260px; overflow-y: auto; line-height: 1.6; margin-top: .8rem; white-space: pre-wrap; }
+  .log .ts { color: #666; }
+  .log .ok { color: #34A853; }
+  .log .warn { color: #F9AB00; }
+  .log .info { color: #8ab4f8; }
+  .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; margin-right: .4rem; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   @media (max-width: 600px) { .scores { grid-template-columns: 1fr; } .hero h1 { font-size: 1.6rem; } }
 </style>
 </head>
@@ -54,39 +67,47 @@
 
 <div class="container">
 
+  <!-- Live Run Section -->
+  <div class="section live-section" style="margin-bottom: 2rem;">
+    <h2>Run Prediction Engine <span class="live-label">Live in Browser</span></h2>
+    <p style="font-size: .88rem; color: #666; margin-bottom: 1rem;">
+      Loads the CSV datasets, runs all 22 regex rules + structural checks + transcript NLP in JavaScript, and computes metrics in real time.
+    </p>
+    <div style="text-align: center;">
+      <button class="btn run" id="runBtn" onclick="runPipeline()">Run predict.py (JS port)</button>
+    </div>
+    <div class="log" id="log" style="display:none;"></div>
+  </div>
+
+  <!-- Score cards — filled by JS after run, shows static defaults initially -->
   <div class="scores">
     <div class="score-card">
       <div class="label">Train F1</div>
-      <div class="value">1.0</div>
-      <div class="detail">59/59 TP · 0 FP · 0 FN</div>
+      <div class="value" id="trainF1">—</div>
+      <div class="detail" id="trainDetail">Click "Run" above</div>
     </div>
     <div class="score-card">
       <div class="label">Validation F1</div>
-      <div class="value">1.0</div>
-      <div class="detail">11/11 TP · 0 FP · 0 FN</div>
+      <div class="value" id="valF1">—</div>
+      <div class="detail" id="valDetail">Click "Run" above</div>
     </div>
     <div class="score-card">
-      <div class="label">Public LB F1</div>
-      <div class="value">1.0</div>
-      <div class="detail">18/159 test calls flagged</div>
+      <div class="label">Test Flagged</div>
+      <div class="value" id="testFlagged">—</div>
+      <div class="detail" id="testDetail">Click "Run" above</div>
     </div>
   </div>
 
-  <div class="section">
-    <h2>Results</h2>
+  <!-- Live results table — populated by JS -->
+  <div class="section" id="resultsSection" style="display:none;">
+    <h2>Results <span class="live-label">Computed Live</span></h2>
     <table>
       <thead>
-        <tr><th>Metric</th><th class="num">Train (689)</th><th class="num">Validation (144)</th><th class="num">Public LB</th></tr>
+        <tr><th>Metric</th><th class="num">Train</th><th class="num">Validation</th></tr>
       </thead>
-      <tbody>
-        <tr><td>F1 Score</td><td class="num highlight">1.0000</td><td class="num highlight">1.0000</td><td class="num highlight">1.0000</td></tr>
-        <tr><td>Precision</td><td class="num">1.0000</td><td class="num">1.0000</td><td class="num">—</td></tr>
-        <tr><td>Recall</td><td class="num">1.0000</td><td class="num">1.0000</td><td class="num">—</td></tr>
-        <tr><td>True Positives</td><td class="num">59 / 59</td><td class="num">11 / 11</td><td class="num">—</td></tr>
-        <tr><td>False Positives</td><td class="num zero">0</td><td class="num zero">0</td><td class="num">—</td></tr>
-        <tr><td>False Negatives</td><td class="num zero">0</td><td class="num zero">0</td><td class="num">—</td></tr>
-      </tbody>
+      <tbody id="resultsBody"></tbody>
     </table>
+    <p id="runTime" style="font-size: .8rem; color: #888; margin-top: .8rem;"></p>
   </div>
 
   <div class="section">
@@ -127,5 +148,212 @@
   CareCaller Hackathon 2026 · VoiceHack2026 · Problem 1: Call Quality Auto-Flagger
 </div>
 
+<script>
+// ── Rule Engine (JS port of predict.py) ──────────────────────────────────
+
+const VALIDATION_PATTERNS = [
+  [/weight differs between sources/i, "audio_issue"],
+  [/erroneously as/i, "audio_issue"],
+  [/stt error/i, "audio_issue"],
+  [/weight discrepancy/i, "audio_issue"],
+  [/dosage guidance/i, "elevenlabs"],
+  [/guardrail/i, "elevenlabs"],
+  [/medical advice/i, "elevenlabs"],
+  [/vitamin supplementation/i, "elevenlabs"],
+  [/miscategor/i, "openai"],
+  [/does not match/i, "openai"],
+  [/corrected by validation/i, "openai"],
+  [/classified as wrong_number/i, "openai"],
+  [/inconsistency noted/i, "openai"],
+  [/inconsistency detected/i, "openai"],
+  [/allergy.*but recorded/i, "openai"],
+  [/noted discrepancy/i, "openai"],
+  [/fabricated responses as questions were not asked/i, "openai"],
+  [/confirmed.*identity.*wrong_number/i, "openai"],
+  [/confirmed identity but stated.*do not want/i, "openai"],
+  [/expressed interest but/i, "openai"],
+  [/but recorded response indicates/i, "openai"],
+  [/recommendations provided for/i, "elevenlabs"],
+];
+
+function hasSideEffectContradiction(transcript, respJson) {
+  if (!respJson) return false;
+  let responses;
+  try { responses = JSON.parse(respJson); } catch { return false; }
+  for (const r of responses) {
+    const q = (r.question || "").toLowerCase();
+    if (!q.includes("side effect")) continue;
+    const answer = (r.answer || "").toLowerCase().trim();
+    if (!answer.includes("yes") && !answer.includes("nausea")) return false;
+    const m = transcript.match(/side effect[^[]*\[USER\]:\s*([^[]+)/i);
+    if (m) {
+      const userSaid = m[1].trim().toLowerCase();
+      if (/\bno\b|not really|none|haven't/.test(userSaid) &&
+          !/\byes\b|yeah|nausea/.test(userSaid)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function applyRules(rows) {
+  return rows.map(row => {
+    const note = (row.validation_notes || "").toLowerCase();
+    const whisperMM = parseInt(row.whisper_mismatch_count, 10) || 0;
+    const outcome = (row.outcome || "").toLowerCase();
+    const respComp = parseFloat(row.response_completeness) || (row.response_completeness === "0" || row.response_completeness === "0.0" ? 0 : 1);
+    const avgUserWords = parseFloat(row.avg_user_turn_words) || 0;
+    const userWordCount = parseInt(row.user_word_count, 10) || 0;
+    const transcript = row.transcript_text || "";
+    const respJson = row.responses_json || "";
+
+    let flagged = false;
+    let cat = "";
+
+    for (const [pattern, pCat] of VALIDATION_PATTERNS) {
+      if (pattern.test(note)) {
+        flagged = true;
+        if (!cat) cat = pCat;
+      }
+    }
+
+    if (whisperMM > 0) { flagged = true; if (!cat) cat = "audio_issue"; }
+    if (outcome === "completed" && respComp > 0 && respComp < 1.0) { flagged = true; if (!cat) cat = "openai"; }
+    if (outcome === "incomplete" && avgUserWords > 8 && respComp < 0.65 && userWordCount > 80) { flagged = true; if (!cat) cat = "openai"; }
+    if (hasSideEffectContradiction(transcript, respJson)) { flagged = true; if (!cat) cat = "openai"; }
+
+    return { ...row, predicted: flagged, category: cat };
+  });
+}
+
+function computeMetrics(rows) {
+  let tp = 0, fp = 0, fn = 0, tn = 0;
+  for (const r of rows) {
+    const actual = r.has_ticket === "True" || r.has_ticket === "true" || r.has_ticket === "1" || r.has_ticket === true;
+    if (actual && r.predicted) tp++;
+    else if (!actual && r.predicted) fp++;
+    else if (actual && !r.predicted) fn++;
+    else tn++;
+  }
+  const precision = tp + fp > 0 ? tp / (tp + fp) : 0;
+  const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
+  const f1 = precision + recall > 0 ? 2 * precision * recall / (precision + recall) : 0;
+  return { tp, fp, fn, tn, precision, recall, f1, total: rows.length, flagged: tp + fp };
+}
+
+// ── UI Logging ───────────────────────────────────────────────────────────
+
+const logEl = document.getElementById("log");
+function log(msg, cls = "") {
+  logEl.style.display = "block";
+  const ts = new Date().toLocaleTimeString();
+  logEl.innerHTML += `<span class="ts">[${ts}]</span> <span class="${cls}">${msg}</span>\n`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function loadCSV(url) {
+  return new Promise((resolve, reject) => {
+    Papa.parse(url, {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      complete: r => resolve(r.data),
+      error: e => reject(e),
+    });
+  });
+}
+
+// ── Main Pipeline ────────────────────────────────────────────────────────
+
+async function runPipeline() {
+  const btn = document.getElementById("runBtn");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Running...';
+  logEl.innerHTML = "";
+  logEl.style.display = "block";
+
+  const t0 = performance.now();
+  log("Starting prediction engine (JS port of predict.py)...", "info");
+
+  try {
+    // Load datasets
+    log("Loading hackathon_train.csv...", "info");
+    const train = await loadCSV("Datasets/csv/hackathon_train.csv");
+    log(`  Loaded ${train.length} rows`, "ok");
+
+    log("Loading hackathon_val.csv...", "info");
+    const val = await loadCSV("Datasets/csv/hackathon_val.csv");
+    log(`  Loaded ${val.length} rows`, "ok");
+
+    log("Loading hackathon_test.csv...", "info");
+    const test = await loadCSV("Datasets/csv/hackathon_test.csv");
+    log(`  Loaded ${test.length} rows`, "ok");
+
+    // Apply rules
+    log("Applying 22 regex patterns + 3 structural rules + NLP...", "info");
+    const trainR = applyRules(train);
+    const valR = applyRules(val);
+    const testR = applyRules(test);
+
+    // Compute metrics
+    const trainM = computeMetrics(trainR);
+    const valM = computeMetrics(valR);
+    const testFlagged = testR.filter(r => r.predicted).length;
+
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+
+    log("", "");
+    log("══════════════════════════════════════════════════", "info");
+    log("  TRAIN Evaluation", "info");
+    log("══════════════════════════════════════════════════", "info");
+    log(`  F1:        ${trainM.f1.toFixed(4)}`, "ok");
+    log(`  Precision: ${trainM.precision.toFixed(4)}`, "ok");
+    log(`  Recall:    ${trainM.recall.toFixed(4)}`, "ok");
+    log(`  TP=${trainM.tp}  FP=${trainM.fp}  FN=${trainM.fn}  TN=${trainM.tn}`, "ok");
+
+    log("", "");
+    log("══════════════════════════════════════════════════", "info");
+    log("  VALIDATION Evaluation", "info");
+    log("══════════════════════════════════════════════════", "info");
+    log(`  F1:        ${valM.f1.toFixed(4)}`, "ok");
+    log(`  Precision: ${valM.precision.toFixed(4)}`, "ok");
+    log(`  Recall:    ${valM.recall.toFixed(4)}`, "ok");
+    log(`  TP=${valM.tp}  FP=${valM.fp}  FN=${valM.fn}  TN=${valM.tn}`, "ok");
+
+    log("", "");
+    log(`Test: ${testFlagged}/${testR.length} calls flagged`, "warn");
+    log(`Completed in ${elapsed}s`, "ok");
+
+    // Update score cards
+    document.getElementById("trainF1").textContent = trainM.f1.toFixed(1);
+    document.getElementById("trainDetail").textContent = `${trainM.tp}/${trainM.tp + trainM.fn} TP · ${trainM.fp} FP · ${trainM.fn} FN`;
+    document.getElementById("valF1").textContent = valM.f1.toFixed(1);
+    document.getElementById("valDetail").textContent = `${valM.tp}/${valM.tp + valM.fn} TP · ${valM.fp} FP · ${valM.fn} FN`;
+    document.getElementById("testFlagged").textContent = testFlagged;
+    document.getElementById("testDetail").textContent = `out of ${testR.length} test calls`;
+
+    // Populate results table
+    const resultsSection = document.getElementById("resultsSection");
+    resultsSection.style.display = "";
+    document.getElementById("resultsBody").innerHTML = `
+      <tr><td>F1 Score</td><td class="num highlight">${trainM.f1.toFixed(4)}</td><td class="num highlight">${valM.f1.toFixed(4)}</td></tr>
+      <tr><td>Precision</td><td class="num">${trainM.precision.toFixed(4)}</td><td class="num">${valM.precision.toFixed(4)}</td></tr>
+      <tr><td>Recall</td><td class="num">${trainM.recall.toFixed(4)}</td><td class="num">${valM.recall.toFixed(4)}</td></tr>
+      <tr><td>True Positives</td><td class="num">${trainM.tp} / ${trainM.tp + trainM.fn}</td><td class="num">${valM.tp} / ${valM.tp + valM.fn}</td></tr>
+      <tr><td>False Positives</td><td class="num zero">${trainM.fp}</td><td class="num zero">${valM.fp}</td></tr>
+      <tr><td>False Negatives</td><td class="num zero">${trainM.fn}</td><td class="num zero">${valM.fn}</td></tr>
+      <tr><td>Total Rows</td><td class="num">${trainM.total}</td><td class="num">${valM.total}</td></tr>
+    `;
+    document.getElementById("runTime").textContent = `Computed in ${elapsed}s · ${new Date().toLocaleString()}`;
+
+  } catch (err) {
+    log(`ERROR: ${err.message}`, "warn");
+  }
+
+  btn.disabled = false;
+  btn.textContent = "Re-run predict.py (JS port)";
+}
+</script>
 </body>
 </html>
