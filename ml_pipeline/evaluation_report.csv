@@ -1,0 +1,7 @@
+Model,Split,F1,Precision,Recall,ROC-AUC,MCC,TP,FP,TN,FN
+Rule-based,Train,1.0,1.0,1.0,1.0,1.0,59,0,630,0
+Rule-based,Val,1.0,1.0,1.0,1.0,1.0,11,0,133,0
+ML v1 (XGBoost+TF-IDF),Train,0.9916,0.9833,1.0,1.0,0.9908,59,1,629,0
+ML v1 (XGBoost+TF-IDF),Val,0.9167,0.8462,1.0,0.9959,0.9129,11,2,131,0
+ML v3 (LightGBM+Targeted),Train,1.0,1.0,1.0,1.0,1.0,59,0,630,0
+ML v3 (LightGBM+Targeted),Val,0.9524,1.0,0.9091,0.9822,0.9499,10,0,133,1
