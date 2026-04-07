@@ -23,21 +23,21 @@ Machine Learning alone struggles with deterministic human edge-cases. We enginee
 - **Catching Anomalies:** Rules definitively inject a flag if highly specific patterns occur (e.g., duration > 600 seconds on escalated calls, or "pricing discussion" regex triggers in notes).
 - **Suppressing Noise:** ML probabilities are forcefully suppressed (Probability < 0.3) if explicit false-alarm markers exist (e.g., call failed purely because there was "no substantive answer" from the human).
 
-### 4. The "True ML" Optimization (Version 10)
-To mathematically maximize the F1 score without over-fitting or "cheating" via target leakage:
-- We combined the `Train` and `Validation` datasets to expose the algorithm to 100% of the available historical edge cases.
-- We natively tuned the probability decision threshold to `0.60` based on validation decay distribution, effectively matching test-set priors while achieving a near-perfect historical mapping.
+### 4. Generalization & The "Full Corpus" Model
+To prepare the model for the unlabelled test data without relying on "target leakage" or hardcoding:
+- The base model was validated using a strict out-of-fold approach (Train on Train, Test on Val).
+- For the final predictions, we aggregated all labeled data (`Train` + `Validation`) so the algorithms could learn from 100% of available historical edge cases ("Full Corpus Model").
+- We dynamically tuned the decision probability threshold relying on validation decay patterns to map realistically to test-set priors, prioritizing a conservative approach to avoid catastrophic false-positive blooms on unseen data.
 
-## 📊 Performance Metrics
+## 📊 Evaluation Strategy & Robustness
+Because the true labels of the Test set are unknown, our core focus was not just chasing high training scores, but proving **methodological robustness**:
 
-We heavily benchmarked multiple iterations of the pipeline (documented in `ITERATION_REPORT.md`):
+| Approach | Architecture | Historical Labeled F1 | Purpose |
+|----------|--------------|---------------------------|---------|
+| **Baseline Splitting Model** | Standard Train/Val Split | **~71.1% (Val Only)** | Proves the model generalizes to completely unseen data. |
+| **Full Corpus Model** | Trained on Combined (Train+Val) | **~96.8% (In-Sample)** | Maximizes learned historical variance for the final blind test predictions. |
 
-| Approach | Architecture | Combined F1 (Train + Val) | Test Set Predicted Flags |
-|----------|--------------|---------------------------|--------------------------|
-| **Baseline Splitting Model** | Standard Train/Val Split | **~81.8%** | 14 |
-| **Full Corpus Model** | True ML (Trained on Combined) | **~96.8%** | 14 |
-
-*Note: The highly optimal Full Corpus Model (`final_submission_combined.csv`) represents the model's absolute peak predictive capability when fed all available training data.*
+*Data Science Note: While evaluating on the combined Train+Val set obviously inflates the F1 (96%), the true value of the Full Corpus Model lies in its exposure to maximum variance before predicting the blind test set. By anchoring to the Baseline's 14 test-flag rate, we safeguarded against over-fitting while using the most informed, generalized estimator possible.*
 
 ## 🚀 How to Run the Pipeline
 
